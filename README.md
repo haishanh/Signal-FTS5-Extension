@@ -62,6 +62,12 @@ cbindgen --profile release . -o target/release/fts5-tokenizer.h
 
 ## License
 
+This project is a fork of Signal-FTS5-Extension.
+
+Original work:
 Copyright 2023 Signal Messenger, LLC.
+
+Modifications:
+Copyright 2026 haishan.
 
 Licensed under the AGPLv3: http://www.gnu.org/licenses/agpl-3.0.html
