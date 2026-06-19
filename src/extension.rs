@@ -11,7 +11,7 @@ use libc::{c_char, c_int, c_uchar, c_void};
 pub struct Sqlite3 {}
 struct Sqlite3Stmt {}
 
-pub const FTS5_API_VERSION: c_int = 2;
+pub const MIN_FTS5_API_VERSION: c_int = 2;
 
 // fts5.h
 #[repr(C)]
@@ -347,7 +347,7 @@ fn signal_fts_tokenizer_internal_init(db: *mut Sqlite3, p_api: *const c_void) ->
 
     let fts5_api = unsafe { p_fts5_api.as_ref() }.ok_or(SQLITE_INTERNAL)?;
 
-    if fts5_api.i_version != FTS5_API_VERSION {
+    if fts5_api.i_version < MIN_FTS5_API_VERSION {
         return Err(SQLITE_MISUSE);
     }
 
