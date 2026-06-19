@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing git tag to publish, for example v0.2.1
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CRATE_NAME: signal-tokenizer
+  LIB_NAME: signal_tokenizer
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-24.04
+            rust_target: x86_64-unknown-linux-gnu
+            zig_target: x86_64-unknown-linux-gnu.2.17
+            archive_suffix: x86_64-unknown-linux-gnu
+            lib_ext: so
+            use_zigbuild: true
+          - name: linux-aarch64
+            os: ubuntu-24.04
+            rust_target: aarch64-unknown-linux-gnu
+            zig_target: aarch64-unknown-linux-gnu.2.17
+            archive_suffix: aarch64-unknown-linux-gnu
+            lib_ext: so
+            use_zigbuild: true
+          - name: macos-x86_64
+            os: macos-13
+            rust_target: x86_64-apple-darwin
+            archive_suffix: x86_64-apple-darwin
+            lib_ext: dylib
+            use_zigbuild: false
+          - name: macos-aarch64
+            os: macos-14
+            rust_target: aarch64-apple-darwin
+            archive_suffix: aarch64-apple-darwin
+            lib_ext: dylib
+            use_zigbuild: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Set default toolchain
+        run: rustup default stable
+
+      - name: Add target
+        run: rustup target add ${{ matrix.rust_target }}
+
+      - name: Install cargo-zigbuild
+        if: matrix.use_zigbuild
+        run: cargo install --locked cargo-zigbuild
+
+      - name: Install Zig
+        if: matrix.use_zigbuild
+        run: python3 -m pip install ziglang
+
+      - name: Install cbindgen
+        run: cargo install --locked cbindgen
+
+      - name: Build shared library
+        run: |
+          if [ "${{ matrix.use_zigbuild }}" = "true" ]; then
+            cargo zigbuild --release --features extension --target ${{ matrix.zig_target }}
+          else
+            cargo build --release --features extension --target ${{ matrix.rust_target }}
+          fi
+
+      - name: Generate C header
+        run: cbindgen --profile release . -o target/${{ matrix.rust_target }}/release/fts5-tokenizer.h
+
+      - name: Assemble release archive
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          artifact_dir="dist/${CRATE_NAME}-${RELEASE_TAG}-${{ matrix.archive_suffix }}"
+          mkdir -p "${artifact_dir}"
+          cp "target/${{ matrix.rust_target }}/release/lib${LIB_NAME}.${{ matrix.lib_ext }}" "${artifact_dir}/"
+          cp "target/${{ matrix.rust_target }}/release/fts5-tokenizer.h" "${artifact_dir}/"
+          cp README.md LICENSE "${artifact_dir}/"
+          tar -C dist -czf "${artifact_dir}.tar.gz" "$(basename "${artifact_dir}")"
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Publish release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(dist/*/*.tar.gz)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No release archives were downloaded" >&2
+            exit 1
+          fi
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "${files[@]}" --clobber
+          else
+            gh release create "${RELEASE_TAG}" "${files[@]}" \
+              --title "${RELEASE_TAG}" \
+              --generate-notes \
+              --verify-tag
+          fi

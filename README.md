@@ -15,32 +15,32 @@ symbols in full-text search.
 # Extension Build/Usage Example
 
 ```sh
-cargo rustc --features extension -- --crate-type=cdylib
+cargo build --features extension
 ```
 
 On macOS, this produces a loadable extension under:
 
 ```sh
-target/debug/deps/libsignal_tokenizer-*.dylib
+target/debug/libsignal_tokenizer.dylib
 ```
 
 For a release build:
 
 ```sh
-cargo rustc --release --features extension -- --crate-type=cdylib
+cargo build --release --features extension
 ```
 
 The release artifact is under:
 
 ```sh
-target/release/deps/libsignal_tokenizer-*.dylib
+target/release/libsignal_tokenizer.dylib
 ```
 
 Load the extension in `sqlite3` using the shared library path and explicit
 entrypoint:
 
 ```sql
-.load /absolute/path/to/libsignal_tokenizer-<hash> signal_fts5_tokenizer_init
+.load /absolute/path/to/libsignal_tokenizer.<dylib|so> signal_fts5_tokenizer_init
 ```
 
 Then create an FTS5 table using `signal_tokenizer`:
